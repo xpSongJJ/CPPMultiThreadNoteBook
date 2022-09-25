@@ -1,5 +1,5 @@
 # C++多线程学习笔记
-该笔记根据B站课程记录，课程地址：https://www.bilibili.com/video/BV1Yb411L7ak/?p=6&spm_id_from=pageDriver&vd_source=ec46083ee7ebee9588ca7ef33741b702
+该笔记根据B站课程记录，笔记的记录顺序随着课程的顺序，代码示例较课程上的有点改动。课程地址：https://www.bilibili.com/video/BV1Yb411L7ak/?p=6&spm_id_from=pageDriver&vd_source=ec46083ee7ebee9588ca7ef33741b702
 
 ## 创建线程
 ### 主线程与子线程的区别
@@ -98,6 +98,55 @@ std::lock_guard<std::mutex> guard(my_mutex);
 `unique_lock`是类模板，它是通用互斥包装器，允许延迟锁定、锁定的有时限尝试、递归锁定、所有权转移和与条件变量一同使用。  
 ### `unique_lock`取代`lock_guard`  
 `unique_lock`比`lock_guard`灵活（提供了更多的功能），但效率较差，占用内存较多。构造对象时可额外传入的参数及其含义：  
-- `adopt_lock`：和`lock_guard`传入的该参数功能相同，表示之前的互斥量已经加锁，`unique_lock`构造对象时不再加锁。  
-- `std::try_to_lock`：构造对象时尝试用`mutex`的`lock()`去锁定这个`mutex`，如果没有锁定成功，就立即返回，不会阻塞在那里，这样可以利用该线程去做其它事情。示例：  
+- `std::adopt_lock`：和`lock_guard`传入的该参数功能相同，表示之前的互斥量已经加锁，`unique_lock`构造对象时不再加锁。  
+- `std::try_to_lock`：构造对象时尝试用`mutex`的`lock()`去锁定这个`mutex`，如果没有锁定成功，就立即返回，不会阻塞在那里，这样可以利用该线程去做其它事情。示例：[点这里](code\test6.cpp)   
+这个示例不是很完美，有闲心的话可以优化优化。  
+- `std::defer_lock`：不获得互斥量的所用权，即推迟加锁。其前提也是不自己`lock()`，针对这个对象（其它`unique_lock`对象也适用）就会有一些成员函数可调用：
+	> 1. `lock()`：手动加锁，但可以自动释放。
+	> 2. `unlock()`：灵活解锁或提前解锁，使锁更加灵活，优化锁的粒度。示例：[点这里](code\test7.cpp)  
+	> 3. `try_lock()`：尝试给互斥量加锁，拿到锁就返回true，否则返回false。 
+	> 4. `release()`：打断互斥量与`*this`的关联，返回指向该互斥量的指针，若互斥量还未被解锁，则需要接管者负责互斥量的解锁。示例：[点这里](code\test8.cpp)  
+> **粒度**：锁住的代码量被称为粒度，粒度用粗细来衡量。锁住的代码少时，粒度较细，执行效率一般较高。锁住代码量多时，粒度较粗，执行效率一般较低。需要保持合适的粒度。  
+### `unique_lock`所有权传递  
+`unique_lock`独占一个互斥量的所有权，和`unique_ptr`比较类似。所以`unique_lock`只能转移互斥量的所有权，不能复制互斥量的所有权。所有权转移的方法： 
+```cpp
+... 
+std::unique_lock<mutex> ul1(my_mutex);
+std::unique_lock<mutex> ul2(std::move(my_mutex)); // 将my_mutex所有权由ul1转移至ul2
+... 
+``` 
+## 单例设计模式共享数据分析、解决
+设计模式是代码的一些写法，这样的写法使程序更加灵活，维护起来更加方便。但这样的代码对于不了解设计模式的人来说晦涩难懂。设计模式出现的初衷是用来管理大型项目，这样时后期的维护更加方便。  
+### 单例设计模式 
+单例设计模式是指某些特殊的类（单例类）只能创建一个对象。一个简单的单例类：[点这里](code\test9.cpp)  
+该类使用的技巧有：私有化构造函数、静态成员指针变量存储对象、嵌套类实现析构。  
+### 共享数据分析、解决 
+单例类建议在主线程（子线程之前）完成对象的创建与初始化。当需要在子线程中创建单例类时，可能面临GetInstance()成员函数互斥的问题。  
+```cpp
+... 
+static MyCAS *GetInstance(){ 
+	if(m_instance == nullptr){ // 线程可能在这里切换，导致多个线程通过这个条件，就会构造多个对象
+		m_instance = new MyCAS();
+		static GarbageRec gc;  // 静态类对象在程序退出时析构
+	}
+	return m_instance;
+}  
+... 
+``` 
+解决办法：
+```cpp 
+... 
+std::mutex resource_mutex;  // 在类外
+... 
+static MyCAS *GetInstance(){ 
+	if(m_instance == nullptr){  // 双重检查，收紧条件，为了提高效率
+		std::unique_lock<std::mutex> ul(resource_mutex);  // 自动加锁
+		if(m_instance == nullptr){
+			m_instance = new MyCAS();
+			static GarbageRec gc;  // 静态类对象在程序退出时析构
+		}
+	}
+	return m_instance;
+... 
+``` 
 
