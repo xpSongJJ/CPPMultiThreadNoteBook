@@ -139,7 +139,7 @@ static MyCAS *GetInstance(){
 std::mutex resource_mutex;  // 在类外
 ... 
 static MyCAS *GetInstance(){ 
-	if(m_instance == nullptr){  // 双重检查，收紧条件，为了提高效率
+	if(m_instance == nullptr){  // 双重检查，收紧条件，为了提高效率，这是比较推荐的方法
 		std::unique_lock<std::mutex> ul(resource_mutex);  // 自动加锁
 		if(m_instance == nullptr){
 			m_instance = new MyCAS();
@@ -148,5 +148,31 @@ static MyCAS *GetInstance(){
 	}
 	return m_instance;
 ... 
-``` 
+```   
+另一种解决方法是使用`std::call_once()`。
+### `std::call_once()` 
+即使多线程调用可调用对象，依然只执行一次。具备互斥量的功能，但效率比直接使用互斥量高。  
+`void call_once(std::once_flag& flag, Callable&& f, Args&&... args)`  
+- `flag`：通过这个标记来决定可调用对象`f`是否执行，调用`call_once()`成功后，这个标记就会被标记为已调用状态，如果后续再次调用`call_once()`,就会检查`flag`状态，来决定是否执行可调用对象`f`。  
+- `f`：可调用对象。
+- `args`：向可调用对象`f`传递的变量。  
+示例：[点这里](code\test10.cpp)  
+该示例是上面问题的另一个解决办法，这里利用`std::call_once()`只执行一次的特性，来确保多个线程同时进行时只能创建一个对象。需要声明一个全局变量`std::once_flag  g_flag`传入`std::call_once()`用来判断可调用对象`CreateInstance()`是否已被某个线程执行，这个可调用对象定义为私有成员函数，实现了对象的创建。  
+> 注意：依然建议在主线程中创建对象
+
+## 条件变量`condition_variable`   
+回顾一下前面的双线程例子：有两个子线程，线程A负责往队列（共享数据）写数据，线程B负责从队列取数据，线程B需要不停地访问队列（通过循环实现），判断队列里是否存在数据，如果存在就取出来，否则继续循环判断，这样写显得有些笨拙，不停地加锁解锁，而且很有限制性。现在可以利用条件变量进行优化。  
+条件变量的成员函数有： 
+-  `void wait(std::unique_lock<std::mutex>& lock)`：传入的参数是`unique_lock`对象，原子地解锁`lock`，阻塞当前线程，并将它添加到于`*this`上等待的线程列表。线程将在执行`notify_all()`或`notify_one()`时被解除阻塞。解阻塞时，无关乎原因，`lock`再次锁定且`wait`退出。
+- `void wait(std::unique_lock<std::mutex>& lock, Predicate pred)`：第二个参数是一个[谓词](https://www.apiref.com/cpp-zh/cpp/named_req/Predicate.html)，定义自己的等待条件。这个重载函数相当于：  
+> ```cpp
+> while(!pred){
+> 	wait(lock);
+> }  
+> // 当wait()不含有第二个参数时，被唤醒的wait()直接通过
+> // 含有第二个参数时，则还需判断谓词条件
+> ``` 
+- `void notify_one()`：唤醒`wait()`，只能通知一个线程。示例：[点这里](code\test11.cpp)   
+- `notify_all()`唤醒全部等待于`*this`的线程。
+
 
