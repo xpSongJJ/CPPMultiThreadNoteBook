@@ -173,6 +173,13 @@ static MyCAS *GetInstance(){
 > // 含有第二个参数时，则还需判断谓词条件
 > ``` 
 - `void notify_one()`：唤醒`wait()`，只能通知一个线程。示例：[点这里](code\test11.cpp)   
-- `notify_all()`唤醒全部等待于`*this`的线程。
+- `notify_all()`唤醒全部等待于`*this`的线程。 
+
+## `async`、`future`、`packaged_task`、`promise`讲解  
+### `std::async`、`std::future`创建后台任务并返回值  
+现在希望线程返回一个结果。  
+`std::async`是一个函数模板，用来启动一个异步任务，返回一个`std::future`对象，这个`std::future`对象含有线程入口函数所返回的结果，可以通过调用`future`对象的成员函数`get()`来获取结果。可以理解为获取将来值，因为异步线程返回结果的时间不确定。如果这个异步任务还没有返回结果，程序会在`get()`这里阻塞等待。  
+  
+
 
 
