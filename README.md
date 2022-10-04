@@ -1,5 +1,6 @@
 # C++多线程学习笔记
-该笔记根据B站课程记录，笔记的记录顺序随着课程的顺序，代码示例较课程上的有点改动。课程地址：https://www.bilibili.com/video/BV1Yb411L7ak/?p=6&spm_id_from=pageDriver&vd_source=ec46083ee7ebee9588ca7ef33741b702
+该笔记根据B站课程记录，笔记的记录顺序随着课程的顺序，代码示例较课程上的有点改动。课程地址：https://www.bilibili.com/video/BV1Yb411L7ak/?p=6&spm_id_from=pageDriver&vd_source=ec46083ee7ebee9588ca7ef33741b702  
+笔记里的‘互斥量’、‘锁’是一个意思，‘加锁’、‘获得互斥量所有权’、’拿到锁‘是一个意思。
 
 ## 创建线程
 ### 主线程与子线程的区别
@@ -177,9 +178,186 @@ static MyCAS *GetInstance(){
 
 ## `async`、`future`、`packaged_task`、`promise`讲解  
 ### `std::async`、`std::future`创建后台任务并返回值  
-现在希望线程返回一个结果。  
-`std::async`是一个函数模板，用来启动一个异步任务，返回一个`std::future`对象，这个`std::future`对象含有线程入口函数所返回的结果，可以通过调用`future`对象的成员函数`get()`来获取结果。可以理解为获取将来值，因为异步线程返回结果的时间不确定。如果这个异步任务还没有返回结果，程序会在`get()`这里阻塞等待。  
-  
+现在假设你的程序对互斥量不敏感，只关系子线程返回的结果，则可以使用`async`。  
+`std::future<...> async( Function&& f, Args&&... args )`；  
+`std::future<...> async( std::launch policy, Function&& f, Args&&... args )`  
+`std::async`是一个函数模板，用来启动一个异步任务，返回一个`std::future`对象，
+这个`std::future`对象含有线程入口函数所返回的结果，可以访问该对象的成员函数来获取特定的功能。
+但要等待这个异步任务的结束。可以理解为访问异步任务将来的特性。`std::future`的成员函数如下：  
+`get()`：获取该异步任务的返回值。如果异步线程还没有结束，则程序会阻塞在这里，直到返回结果。  
+`wait()`：无返回值，程序在这里阻塞，等待异步线程的结束。  
+示例：[点这里](code\test12.cpp)   
+> 注意：如果没有调用`std::future`的任何方法，则效果相当于在主函数`return`处调用`wait()`。  
+
+`std::launch`是枚举类型，可以定制想要的启动策略。  
+	1. `std::launch::deferred`：延迟子线程启动，在`get()`或`wait()`调用时启动。如果没有调用这些方法，则子线程从始至终都没有创建。现在有一个疑问，延迟子线程启动，即在在get()或wait()调用时启动并堵塞，和直接将该线程替换成一个函数好像没什么区别。示例：[点这里](code\test13.cpp)  
+	2. `std::launch::async`：异步子线程创建并启动。  
+	3. `std::launch::deferred | std::launch::async`：默认标记，系统根据需要选择是否延迟启动。  
+
+### `std::packaged_task`  
+`packaged_task`是类模板，模板参数是可调用对象，将各种可调用对象（函数、 lambda 表达式、 bind 表达式或其他函数对象）包装起来，生成一个新的可调用对象，方便将来作为线程入口函数。其返回值或所抛异常被存储于能通过`future`对象访问的共享状态中。使用示例：[点这里](code\test14.cpp)   
+程序开发过程中，经常将`packaged_task`封装在容器中，方便后续使用。  
+```cpp
+... 
+int fun(int val){
+	...
+}
+...
+packaged_task<int(int)> mypt(fun);
+vector<packaged_task<int(int)>> mytasks;
+mytasks.push_back(mypt);
+...
+packaged_task<int(int)> mypt2; // 用来接收容器里的对象
+auto iter = mytasks.begin();
+mypt2 = move(*iter);  // 转移所有权
+mytask.erase(iter) // 删除第一个元素，迭代器失效，后续代码不能再使用iter
+mypt2(val);
+future<int> result = mypt2.get_future();
+result.get();
+...
+```  
+
+### `std::promise`  
+类模板`promise`能够存储值或异常，之后通过`promise`对象所创建的`future`对象异步获得结果。
+注意`promise`只应当使用一次。示例： [点这里](code\test15.cpp)  
+
+### 建议
+学习这些东西的目的不是马上把他们应用在实际开发中，而是为了帮助我们能够读懂大佬的代码，积累经验。
+在实际开发中更值得赞赏的是，使用使用更少的东西写出一个稳定高效的多线程程序。  
+
+## `future`其它成员函数、`shared_future`、`atomic`  
+
+### `std::future`其它成员函数  
+类模板`future`提供访问异步操作结果的机制，除了提供结果访问(`get()`)，还提供一些状态访问的成员函数。  
+	1. `wait_for()`：等待结果，如果在指定的超时间隔后仍然无法得到结果，则返回。
+	返回类型为`std::future_status`。  
+> `future_status`是个枚举类型，包含三种状态，`timeout`、`ready`和`deferred`。  
+
+### `std::shared_future` 
+`shared_future`是一个类模板，不同于`future`，该类的`get()`函数是将值复制给变量，而不是转移给变量，所以可以`get()`多次。[点这里](code\test17.cpp)  
+1. `share()`可以将一个`future`对象转移给`shared_future`对象：
+	```cpp
+	std::shared_future<int> shf{f.share()}; // f为一个future对象
+	```  
+2. `valid()`可以检查`future`对象是否拥有共享状态，即其值是否被转移，被转移后就失去了共享状态。
+
+### 原子操作`std::atomic`  
+如果有一个线程对共享数据进行写操作，另一个线程进行读取操作，则可能出现意想不到的错误。
+一种解决办法就是对共享数据加锁，但频繁的访问，不断地加锁解锁，效率势必比较低。
+另一种解决办法是将共享数据定义为一个原子类型对象。对该对象进行的一般操作是原子操作。示例：[点这里](code\test18.cpp)    
+原子操作：在多线程中不会被打断的程序片段。  
+> 对原子变量的原子操作一般是加减乘除赋值等，自定义的原子操作还需要进一步学习。    
 
 
+## `std::atomic`续谈、`std::async`深入谈  
 
+### 原子操作`std::atomic`续谈  
+回顾上面的示例(test18.cpp)，当把自增运算`++count`更换成`count = count + 1`时，运行结果就会出错，这就说明`count = count + 1`并不是原子操作。
+一般默认支持的原子操作是`++`,`--`,`+=`,`&=`,`|=`,`^=`。  
+
+### `std::async`深入谈  
+回顾之前的内容，`async`创建一个线程时（更应该说创建一个异步任务），可以传入特定的标记：`std::launch::deferred`，延迟启动；`std::launch::async`,强制启动线程。  
+`std::thread`如果在系统资源紧张时，创建线程可能会失败，那么继续执行就可能导致程序崩溃。
+`async`一般不叫创建线程，而是创建一个异步任务。与`thread`不同的是，当它传入标记`std::launch::deferred`，并不会创建新的线程（因为毫无意义）。  
+`async`还可以传入标记`std::launch::deferred | std::launch::async`，默认标记，代表是否延迟启动是不确定的，由系统决定。在系统资源紧张时，可能就会延迟启动。  
+
+#### `std::async`和`std::thread`的区别
+`thread`创建线程时如果系统资源紧张，则可能创建线程失败导致程序崩溃。此外，如果想要拿到这种方式创建的线程的返回值也不是一件容易事。  
+`async`更加灵活，它创建一个异步任务，该任务根据传入的标志来决定是否执行，如果不传入标志，则根据系统资源情况决定是否延迟执行。
+所谓延迟执行实际就是在需要的时候(调用get()或wait()时)直接在所在线程上执行这个异步任务，而不创建新的线程。  
+老师的经验：一个程序里，线程数量不宜超过100-200。
+#### `std::async`不确定性解决  
+在使用`async`创建异步任务时，没有传入任何标志，即任务是否被延迟是不确定的。
+这时如果开发者比较关心该异步任务是否被延迟了，并根据情况进行接下来的操作。
+可以使用`wait_for()`来返回状态，如：
+```cpp
+std::future<int> result = std::async(fun);
+
+std::future_status status = result.wait_for(0s);  // 返回的状态有：deferred、ready、timeout
+if(status == std::future_status::deferred){
+	...
+	result.get();  //任务被延迟了，现在启动任务
+	...
+}
+if(status == std::future_status::timeout){
+	...
+	// 异步任务已经被执行，但还没有执行完
+}
+if(status == std::future_status::ready){
+	...
+	result.get(); // 异步任务已经执行完毕，可以直接拿数据
+}
+```  
+
+## windows临界区、其它各种`mutex`互斥量  
+
+### windows临界区  
+windows临界区是面向windows编程的‘互斥量'，类似C++中的`mutex`，
+使用时需要包含`windows.h`头文件。示例：[点这里](code\test19.cpp)  
+
+那么window临界区和C++的`mutex`用法有什么异同呢？  
+win临界区可以多次进入：在同一个线程中，相同临界区变量代表的临界区的进入(`EnterCriticalSection()`)可以被多次调用。当然进入临界区和离开临界区(`LeaveCriticalSection()`)必须是成对出现的。而C++本身的互斥量是不允许多次加锁的。  
+
+### 自动离开临界区  
+C++中有`std::lock_guard`，来实现锁的自动释放，那么win下有没有提供类似的功能？
+这里来实现一个这样的功能。示例：[点这里](code\test20.cpp)  
+
+### `recursive_mutex`递归地独占互斥量  
+`recursive_mutex`递归地独占互斥量，即允许同一个线程同一个互斥量多次被`lock()`。类似win临界区的`EnterCriticalSection()`。  
+先想象一下什么时候会用到多次`lock()`呢？一个场景就是在实际开发中，在已经`lock()`的情况下需要调用另一个方法，但那个方法里有`lock()`语句，重写又太麻烦。
+这时就需要能够多次`lock()`。  
+```cpp
+void test1(){
+	std::lock_guard<std::mutex> lg(my_mutex);
+	// ... 干各种事
+	test2(); // test2里也有lock()
+}
+void test2(){
+	std::lock_guard<std::mutex> lg(my_mutex);
+	// ... 干各种事
+}
+```
+`recursive_mutex`用法和`mutex`类似，直接声明一个变量使用就行了。但在使用的过程中要观察程序是否有优化的空间。  
+
+### 带超时的互斥量`std::timed_mutex`和`std::recursive_timed_mutex`  
+`std::timed_mutex`:带有超市功能的独占互斥量，与`std::mutex`有什么区别呢？
+`std::timed_mutex`含有另外的两个接口：  
+`try_lock_for()`：参数是一个时间段，表示等待一段时间，如果时间段内拿到锁或时间段尾未拿到锁，则程序继续走下去。  
+`try_lock_until()`：参数是一个时间点，表示该时间点前拿到锁或到时间点未拿到锁时，程序继续走下去。  
+```cpp
+std::chrono::steady::now();  // 表示当前时间，可以加一个时间段表示未来一个时间点
+```
+`std::recursive_timed_mutex`是在`std::timed_mutex`的基础上可以多次`lock()`。  
+
+## 补充知识、线程池浅谈、数量谈、总计
+
+### 补充一些知识
+#### 虚假唤醒
+回顾一下`test11.cpp`，其中的条件变量`cond_var`的`notify_one()`和`wait()`的配合使用，
+来实现线程B等待满足条件(`wait()`)，不满足则进入休眠状态来节省资源，线程A生产出资源立马通知(`notify_one()`)线程B，唤醒其休眠状态。  
+那么虚假唤醒是指存在一种情况就是，线程A并没有生产出资源就通知了线程A。  
+所说为应对虚假唤醒的现象，线程A的`wait()`中应有一个判断语句(第二个参数)，判断是否有资源，再决定是否再次进入休眠。  
+#### `atomic`  
+原子变量不支持拷贝构造，也不支持拷贝赋值。可以使用`load()`来实现拷贝构造或拷贝赋值。使用`store()`对原子变量写入数据。
+```cpp
+std::atomic<int> atm1;
+atm1.store(1);  // 写入数据
+std::atomic<int> atm2(atm1.load());  //用atm1初始化atm2
+```
+
+### 线程池浅谈  
+现在有一个网络服务器，每来一个访问就为其创建一个线程，如果同时有上万个访问，就要同时创建上万个线程，这显然是不现实的。  
+稳定性问题：编写代码中，偶尔创建一个线程，这种写法是不安全的。因为一旦创建失败，就可能产生一系列连锁反应。  
+线程池：把一堆线程弄到一起，统一管理。这种统一管理调度，循环利用线程的方式就叫线程池。
+#### 实现方式  
+在程序启动时，一次性地创建好一定数量的线程。避免临时创建线程，提高程序的稳定性。
+### 线程创建数量谈
+根据前辈的经验，同一个程序创建线程的极限数量大概是2000个。  
+采用某些技术开发程序，api接口供应商建议创建线程的数量为cpu数量，或cpu*2, 或cpu*2+2，应遵循建议和指示来，专业意见  
+创建多线程完成业务(如充值业务)，一个线程等于一条执行通路。比如100个堵塞充值，开110个线程是有必要的，留出一些线程干其他事情。  
+创建线程的数量控制在200个之内是比较合适的。
+### C++11多线程总结
+c++11的多线程程序实现了跨平台。  
+
+## 课程总结是展望
+老师推荐课程《跨越30K系列之Linux C++网络架师构实战》、《C++对象模型探索》

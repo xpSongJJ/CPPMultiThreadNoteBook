@@ -15,14 +15,14 @@ int mythread(){
 
 int main(){
     cout << "main " << "thread id = " << this_thread::get_id() << endl;
-    future<int> result = async(mythread);  // 创建异步任务，并从这里已经开始执行
+    future<int> result = async(launch::deferred, mythread);  // 延迟子线程启动
     chrono::milliseconds dura(2000);
     this_thread::sleep_for(dura);
     cout << "main continuing !" << endl;
     
-    cout << result.get() << endl;
-    // cout << result.get() << endl;  // 不能重复调用
-    // result.wait();  // 会报错：No associated state
+    cout << result.get() << endl;  // 子线程在这里启动
+    // 子线程和主线程的线程id是一样的
+    // 说明子线程没有被创建
 
     return 0;
 }
