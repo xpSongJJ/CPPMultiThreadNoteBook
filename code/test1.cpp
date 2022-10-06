@@ -2,6 +2,11 @@
 #include<list>
 #include<thread>
 
+/*
+程序是一个输入输出类
+输入函数(in)负责往队列写入数据
+输出函数(out)负责从队列拿取数据
+*/
 
 class INOUT{
     private:
@@ -10,7 +15,7 @@ class INOUT{
     public:
         void in(){
             int num = 0;
-            while(num < 10000){
+            while(num < 1000){
                 mylist.push_back(num);
                 std::cout << "向队尾添加数据：" << num << std::endl;
                 ++num;
@@ -19,7 +24,7 @@ class INOUT{
 
         void out(){
             int i = 0;
-            while(i < 10000){
+            while(i < 2000){
                 if(!mylist.empty()){
                     int temp = mylist.front();
                     mylist.pop_front();
@@ -37,8 +42,8 @@ int main(){
 
     INOUT inout;
 
-    std::thread t1(&INOUT::in, &inout);
-    std::thread t2(&INOUT::out, &inout);
+    std::thread t1(INOUT::in, inout);
+    std::thread t2(&INOUT::out, &inout);  // 
     t1.join();
     t2.join();
 
